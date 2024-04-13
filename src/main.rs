@@ -2,7 +2,9 @@ use macroquad::prelude::*;
 
 const G: f32 = 1.0;
 const NUM_OF_BODIES: usize = 3;
-const BODY_RADIUS: f32 = 10.0;
+const SCREEN_WIDTH: f32 = 800.0;
+const SCREEN_HEIGHT: f32 = 600.0;
+const FRICTION: f32 = 0.98;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Body {
@@ -11,6 +13,7 @@ struct Body {
     acceleration: Vec2,
     force: Vec2,
     mass: f32,
+    radius: f32,
 }
 
 impl Body {
@@ -21,6 +24,29 @@ impl Body {
             acceleration: Vec2::ZERO,
             force: Vec2::ZERO,
             mass: 1000.0,
+            radius: 10.0,
+        }
+    }
+
+    fn random() -> Self {
+        let position = vec2(
+            rand::gen_range(0.0, SCREEN_WIDTH),
+            rand::gen_range(0.0, SCREEN_HEIGHT)
+        );
+        let velocity = vec2(
+            rand::gen_range(-5.0, 5.0), // Random initial velocities
+            rand::gen_range(-5.0, 5.0)
+        );
+        let mass = rand::gen_range(500.0, 1500.0); // Random mass between 500 and 1500
+        let radius = mass / 100.0;
+
+        Body {
+            position,
+            velocity,
+            acceleration: Vec2::ZERO,
+            force: Vec2::ZERO,
+            mass,
+            radius,
         }
     }
 
@@ -33,7 +59,7 @@ impl Body {
 
     fn calculate_force(&self, other_body: &Self) -> Vec2 {
         let distance = self.get_distance(other_body);
-        if distance < 2.0 * BODY_RADIUS {
+        if distance < 2.0 * self.radius {
             // Adjust to avoid division by zero in force calculation
             return Vec2::ZERO; // Collision detected, no force applied
         }
@@ -67,11 +93,27 @@ impl Body {
     }
 
     pub fn check_and_resolve_collision(&mut self, other_body: &mut Body) {
-        if self.get_distance(other_body) < 2.0 * BODY_RADIUS {
+        if self.get_distance(other_body) < 2.0 * self.radius {
             // Simple elastic collision response
             let temp_velocity = self.velocity;
-            self.velocity = other_body.velocity;
-            other_body.velocity = temp_velocity;
+            self.velocity = other_body.velocity * FRICTION;
+            other_body.velocity = temp_velocity * FRICTION;
+        }
+    }
+
+    pub fn check_boundary_collisions(&mut self) {
+        // Check for collision with the left or right boundary
+        if self.position.x <= self.radius || self.position.x >= SCREEN_WIDTH - self.radius {
+            self.velocity.x = -self.velocity.x * FRICTION; // Reverse the horizontal velocity component
+            // Adjust position to ensure it stays within bounds
+            self.position.x = self.position.x.clamp(self.radius, SCREEN_WIDTH - self.radius);
+        }
+
+        // Check for collision with the top or bottom boundary
+        if self.position.y <= self.radius || self.position.y >= SCREEN_HEIGHT - self.radius {
+            self.velocity.y = -self.velocity.y * FRICTION; // Reverse the vertical velocity component
+            // Adjust position to ensure it stays within bounds
+            self.position.y = self.position.y.clamp(self.radius, SCREEN_HEIGHT - self.radius);
         }
     }
 
@@ -85,8 +127,8 @@ impl Body {
 #[macroquad::main("civilization")]
 async fn main() {
     let mut bodies: Vec<Body> = Vec::with_capacity(NUM_OF_BODIES);
-    for i in 0..NUM_OF_BODIES {
-        bodies.push(Body::new(vec2((i as f32) * 100.0 + 10.0, (i as f32) * 100.0 + 10.0)));
+    for _ in 0..NUM_OF_BODIES {
+        bodies.push(Body::random());
     }
 
     loop {
@@ -107,8 +149,9 @@ async fn main() {
                 bodies[i].check_and_resolve_collision(&mut other_body);
                 bodies[j] = other_body;
             }
-            bodies[i].update(0.1);
-            draw_circle(bodies[i].position.x, bodies[i].position.y, BODY_RADIUS, RED);
+            bodies[i].update(0.5);
+            bodies[i].check_boundary_collisions();
+            draw_circle(bodies[i].position.x, bodies[i].position.y, bodies[i].radius, RED);
         }
 
         next_frame().await;
