@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 
 const G: f32 = 1.0;
 const NUM_OF_BODIES: usize = 3;
+const BODY_RADIUS: f32 = 10.0;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Body {
@@ -32,6 +33,11 @@ impl Body {
 
     fn calculate_force(&self, other_body: &Self) -> Vec2 {
         let distance = self.get_distance(other_body);
+        if distance < 2.0 * BODY_RADIUS {
+            // Adjust to avoid division by zero in force calculation
+            return Vec2::ZERO; // Collision detected, no force applied
+        }
+
         let numer = self.mass * other_body.mass;
         let denom = distance.powi(2);
         let magnitude = G * (numer / denom);
@@ -60,6 +66,15 @@ impl Body {
         self.position += self.velocity * dt;
     }
 
+    pub fn check_and_resolve_collision(&mut self, other_body: &mut Body) {
+        if self.get_distance(other_body) < 2.0 * BODY_RADIUS {
+            // Simple elastic collision response
+            let temp_velocity = self.velocity;
+            self.velocity = other_body.velocity;
+            other_body.velocity = temp_velocity;
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.update_acceleration();
         self.update_velocity(dt);
@@ -77,21 +92,23 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
-        // Draw every body
-        for body in &bodies {
-            draw_circle(body.position.x, body.position.y, 10.0, RED);
-        }
-
-        // Update every body
         for i in 0..bodies.len() {
             for j in 0..bodies.len() {
-                if bodies[j] != bodies[i] {
+                if i != j {
                     let other_body = bodies[j];
                     bodies[i].update_force(&other_body);
                 }
             }
+        }
+
+        for i in 0..bodies.len() {
+            for j in i + 1..bodies.len() {
+                let mut other_body = bodies[j];
+                bodies[i].check_and_resolve_collision(&mut other_body);
+                bodies[j] = other_body;
+            }
             bodies[i].update(0.1);
-            println!("{:#?}", bodies[i]);
+            draw_circle(bodies[i].position.x, bodies[i].position.y, BODY_RADIUS, RED);
         }
 
         next_frame().await;
