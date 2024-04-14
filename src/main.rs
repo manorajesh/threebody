@@ -1,10 +1,11 @@
 use macroquad::prelude::*;
 
 const G: f32 = 1.0;
-const NUM_OF_BODIES: usize = 3;
+const NUM_OF_BODIES: usize = 100;
 const SCREEN_WIDTH: f32 = 800.0;
 const SCREEN_HEIGHT: f32 = 600.0;
-const FRICTION: f32 = 0.98;
+const FRICTION: f32 = 0.99;
+const MAX_VELOCITY: f32 = 20.0;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Body {
@@ -14,6 +15,7 @@ struct Body {
     force: Vec2,
     mass: f32,
     radius: f32,
+    freezed: bool,
 }
 
 impl Body {
@@ -25,20 +27,20 @@ impl Body {
             force: Vec2::ZERO,
             mass: 1000.0,
             radius: 10.0,
+            freezed: false,
         }
     }
 
-    fn random() -> Self {
-        let position = vec2(
-            rand::gen_range(0.0, SCREEN_WIDTH),
-            rand::gen_range(0.0, SCREEN_HEIGHT)
+    fn random(initial_pos: Option<Vec2>) -> Self {
+        let position = initial_pos.unwrap_or(
+            vec2(rand::gen_range(0.0, SCREEN_WIDTH), rand::gen_range(0.0, SCREEN_HEIGHT))
         );
         let velocity = vec2(
             rand::gen_range(-5.0, 5.0), // Random initial velocities
             rand::gen_range(-5.0, 5.0)
         );
         let mass = rand::gen_range(500.0, 1500.0); // Random mass between 500 and 1500
-        let radius = mass / 100.0;
+        let radius = mass / 209.0;
 
         Body {
             position,
@@ -47,6 +49,7 @@ impl Body {
             force: Vec2::ZERO,
             mass,
             radius,
+            freezed: false,
         }
     }
 
@@ -86,6 +89,11 @@ impl Body {
 
     pub fn update_velocity(&mut self, dt: f32) {
         self.velocity += self.acceleration * dt;
+
+        // Limit the velocity to prevent the simulation from exploding
+        if self.velocity.length() > MAX_VELOCITY {
+            self.velocity = self.velocity.normalize() * MAX_VELOCITY;
+        }
     }
 
     pub fn update_position(&mut self, dt: f32) {
@@ -94,7 +102,6 @@ impl Body {
 
     pub fn check_and_resolve_collision(&mut self, other_body: &mut Body) {
         if self.get_distance(other_body) < 2.0 * self.radius {
-            // Simple elastic collision response
             let temp_velocity = self.velocity;
             self.velocity = other_body.velocity * FRICTION;
             other_body.velocity = temp_velocity * FRICTION;
@@ -104,23 +111,23 @@ impl Body {
     pub fn check_boundary_collisions(&mut self) {
         // Check for collision with the left or right boundary
         if self.position.x <= self.radius || self.position.x >= SCREEN_WIDTH - self.radius {
-            self.velocity.x = -self.velocity.x * FRICTION; // Reverse the horizontal velocity component
-            // Adjust position to ensure it stays within bounds
+            self.velocity.x = -self.velocity.x * FRICTION;
             self.position.x = self.position.x.clamp(self.radius, SCREEN_WIDTH - self.radius);
         }
 
         // Check for collision with the top or bottom boundary
         if self.position.y <= self.radius || self.position.y >= SCREEN_HEIGHT - self.radius {
-            self.velocity.y = -self.velocity.y * FRICTION; // Reverse the vertical velocity component
-            // Adjust position to ensure it stays within bounds
+            self.velocity.y = -self.velocity.y * FRICTION;
             self.position.y = self.position.y.clamp(self.radius, SCREEN_HEIGHT - self.radius);
         }
     }
 
     pub fn update(&mut self, dt: f32) {
-        self.update_acceleration();
-        self.update_velocity(dt);
-        self.update_position(dt);
+        if !self.freezed {
+            self.update_acceleration();
+            self.update_velocity(dt);
+            self.update_position(dt);
+        }
     }
 }
 
@@ -128,7 +135,7 @@ impl Body {
 async fn main() {
     let mut bodies: Vec<Body> = Vec::with_capacity(NUM_OF_BODIES);
     for _ in 0..NUM_OF_BODIES {
-        bodies.push(Body::random());
+        bodies.push(Body::random(None));
     }
 
     loop {
@@ -143,6 +150,41 @@ async fn main() {
             }
         }
 
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let mouse_position = mouse_position();
+            bodies.push(Body::random(Some(vec2(mouse_position.0, mouse_position.1))));
+        }
+
+        // drag bodies with mouse
+        if is_mouse_button_down(MouseButton::Right) {
+            let mouse_position = mouse_position();
+            for body in bodies.iter_mut() {
+                if
+                    body.get_distance(&Body::new(vec2(mouse_position.0, mouse_position.1))) <
+                    2.0 * body.radius
+                {
+                    body.position = vec2(mouse_position.0, mouse_position.1);
+                    body.velocity = Vec2::ZERO;
+                }
+            }
+        }
+
+        if is_mouse_button_pressed(MouseButton::Middle) {
+            let mouse_position = mouse_position();
+            for body in bodies.iter_mut() {
+                if
+                    body.get_distance(&Body::new(vec2(mouse_position.0, mouse_position.1))) <
+                    2.0 * body.radius
+                {
+                    body.freezed = !body.freezed;
+                }
+            }
+        }
+
+        if is_key_pressed(KeyCode::Space) {
+            bodies.clear();
+        }
+
         for i in 0..bodies.len() {
             for j in i + 1..bodies.len() {
                 let mut other_body = bodies[j];
@@ -151,9 +193,16 @@ async fn main() {
             }
             bodies[i].update(0.5);
             bodies[i].check_boundary_collisions();
-            draw_circle(bodies[i].position.x, bodies[i].position.y, bodies[i].radius, RED);
+            draw_circle_lines(
+                bodies[i].position.x,
+                bodies[i].position.y,
+                bodies[i].radius,
+                4.0,
+                RED
+            );
         }
 
+        draw_text(&format!("{}", get_fps()), 100.0, 100.0, 30.0, WHITE);
         next_frame().await;
     }
 }
