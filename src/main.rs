@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 
 const G: f32 = 1.0;
-const NUM_OF_BODIES: usize = 100;
+const NUM_OF_BODIES: usize = 1000;
 const SCREEN_WIDTH: f32 = 800.0;
 const SCREEN_HEIGHT: f32 = 600.0;
 const FRICTION: f32 = 0.99;
@@ -36,8 +36,8 @@ impl Body {
             vec2(rand::gen_range(0.0, SCREEN_WIDTH), rand::gen_range(0.0, SCREEN_HEIGHT))
         );
         let velocity = vec2(
-            rand::gen_range(-5.0, 5.0), // Random initial velocities
-            rand::gen_range(-5.0, 5.0)
+            rand::gen_range(-2.0, 2.0), // Random initial velocities
+            rand::gen_range(-2.0, 2.0)
         );
         let mass = rand::gen_range(500.0, 1500.0); // Random mass between 500 and 1500
         let radius = mass / 209.0;
@@ -101,7 +101,10 @@ impl Body {
     }
 
     pub fn check_and_resolve_collision(&mut self, other_body: &mut Body) {
-        if self.get_distance(other_body) < 2.0 * self.radius {
+        if
+            self.get_distance(other_body) < 2.0 * self.radius ||
+            self.get_distance(other_body) < 2.0 * other_body.radius
+        {
             let temp_velocity = self.velocity;
             self.velocity = other_body.velocity * FRICTION;
             other_body.velocity = temp_velocity * FRICTION;
