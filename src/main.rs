@@ -1,11 +1,14 @@
 use macroquad::prelude::*;
+use rayon::prelude::*;
+use std::sync::Arc;
+use std::sync::Mutex;
 
-const G: f32 = 1.0;
-const NUM_OF_BODIES: usize = 1000;
+const G: f32 = 1.0e-1;
+const NUM_OF_BODIES: usize = 10000;
 const SCREEN_WIDTH: f32 = 800.0;
 const SCREEN_HEIGHT: f32 = 600.0;
 const FRICTION: f32 = 0.99;
-const MAX_VELOCITY: f32 = 20.0;
+const MAX_VELOCITY: f32 = 10.0;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Body {
@@ -36,11 +39,11 @@ impl Body {
             vec2(rand::gen_range(0.0, SCREEN_WIDTH), rand::gen_range(0.0, SCREEN_HEIGHT))
         );
         let velocity = vec2(
-            rand::gen_range(-2.0, 2.0), // Random initial velocities
-            rand::gen_range(-2.0, 2.0)
+            rand::gen_range(-0.5, 0.5), // Random initial velocities
+            rand::gen_range(-0.5, 0.5)
         );
         let mass = rand::gen_range(500.0, 1500.0); // Random mass between 500 and 1500
-        let radius = mass / 209.0;
+        let radius = mass / 150.0;
 
         Body {
             position,
@@ -132,26 +135,68 @@ impl Body {
             self.update_position(dt);
         }
     }
+
+    pub fn calculate_forces(bodies: &mut [Body]) -> Vec<Vec2> {
+        let forces = bodies
+            .par_iter()
+            .enumerate()
+            .map(|(i, body)| {
+                bodies
+                    .iter()
+                    .enumerate()
+                    .fold(Vec2::ZERO, |acc, (j, other_body)| {
+                        if i != j { acc + body.calculate_force(other_body) } else { acc }
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        forces
+    }
+
+    pub fn apply_forces(bodies: &mut [Body], forces: Vec<Vec2>, dt: f32) {
+        bodies
+            .iter_mut()
+            .zip(forces.into_iter())
+            .for_each(|(body, force)| {
+                body.force = force;
+                body.update(dt);
+            });
+    }
+
+    pub fn apply_forces_with_substeps(
+        bodies: &mut [Body],
+        forces: Vec<Vec2>,
+        dt: f32,
+        substeps: usize
+    ) {
+        let dt_substep = dt / (substeps as f32);
+        for _ in 0..substeps {
+            bodies
+                .iter_mut()
+                .zip(forces.iter())
+                .for_each(|(body, &force)| {
+                    body.force = force;
+                    body.update(dt_substep);
+                });
+        }
+    }
 }
 
-#[macroquad::main("civilization")]
+#[macroquad::main("threebody")]
 async fn main() {
-    let mut bodies: Vec<Body> = Vec::with_capacity(NUM_OF_BODIES);
-    for _ in 0..NUM_OF_BODIES {
-        bodies.push(Body::random(None));
-    }
+    let bodies: Vec<Body> = (0..NUM_OF_BODIES).map(|_| Body::random(None)).collect();
+    let bodies = Mutex::new(bodies);
 
     loop {
         clear_background(BLACK);
 
-        for i in 0..bodies.len() {
-            for j in 0..bodies.len() {
-                if i != j {
-                    let other_body = bodies[j];
-                    bodies[i].update_force(&other_body);
-                }
-            }
-        }
+        let mut bodies = bodies.lock().unwrap();
+
+        // Calculate all forces
+        let forces = Body::calculate_forces(&mut bodies);
+
+        // Apply all forces
+        Body::apply_forces_with_substeps(&mut bodies, forces, 1.0, 1000);
 
         if is_mouse_button_pressed(MouseButton::Left) {
             let mouse_position = mouse_position();
@@ -194,7 +239,7 @@ async fn main() {
                 bodies[i].check_and_resolve_collision(&mut other_body);
                 bodies[j] = other_body;
             }
-            bodies[i].update(0.5);
+            // bodies[i].update(0.5);
             bodies[i].check_boundary_collisions();
             draw_circle_lines(
                 bodies[i].position.x,
