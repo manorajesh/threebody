@@ -134,7 +134,7 @@ impl Body {
     }
 }
 
-#[macroquad::main("civilization")]
+#[macroquad::main("threebody")]
 async fn main() {
     let mut bodies: Vec<Body> = Vec::with_capacity(NUM_OF_BODIES);
     for _ in 0..NUM_OF_BODIES {
